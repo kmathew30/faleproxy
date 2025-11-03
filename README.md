@@ -1,5 +1,7 @@
 # Faleproxy
 
+**HW8 Note**: This is a fork for testing CI/CD pipeline with GitHub Actions and Vercel deployment.
+
 A Node.js web application that fetches a URL, replaces every instance of "Yale" with "Fale" in the document, and displays the modified content.
 
 ## Features
