@@ -2,7 +2,9 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const { sampleHtmlWithYale } = require('./test-utils');
 const nock = require('nock');
-const express = require('express');
+
+// Import the actual app
+const app = require('../app');
 
 // Set a different port for testing to avoid conflict with the main app
 const TEST_PORT = 3099;
@@ -15,54 +17,8 @@ describe('Integration Tests', () => {
     nock.enableNetConnect('127.0.0.1');
     nock.enableNetConnect('localhost');
     
-    // Create a test server programmatically (cross-platform solution)
-    const testApp = express();
-    testApp.use(express.json());
-    testApp.use(express.urlencoded({ extended: true }));
-    
-    // Recreate the /fetch endpoint for testing
-    testApp.post('/fetch', async (req, res) => {
-      try {
-        const { url } = req.body;
-        
-        if (!url) {
-          return res.status(400).json({ error: 'URL is required' });
-        }
-
-        const response = await require('axios').get(url);
-        const html = response.data;
-        const $ = require('cheerio').load(html);
-        
-        // Process text nodes in the body
-        $('body *').contents().filter(function() {
-          return this.nodeType === 3; // Text nodes only
-        }).each(function() {
-          const text = $(this).text();
-          const newText = text.replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-          if (text !== newText) {
-            $(this).replaceWith(newText);
-          }
-        });
-        
-        // Process title separately
-        const title = $('title').text().replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
-        $('title').text(title);
-        
-        return res.json({ 
-          success: true, 
-          content: $.html(),
-          title: title,
-          originalUrl: url
-        });
-      } catch (error) {
-        return res.status(500).json({ 
-          error: `Failed to fetch content: ${error.message}` 
-        });
-      }
-    });
-    
-    // Start the test server
-    server = testApp.listen(TEST_PORT);
+    // Start the actual app on a test port
+    server = app.listen(TEST_PORT);
     
     // Give the server time to start
     await new Promise(resolve => setTimeout(resolve, 1000));
