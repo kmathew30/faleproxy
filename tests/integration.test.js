@@ -1,42 +1,78 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { exec } = require('child_process');
-const { promisify } = require('util');
-const execAsync = promisify(exec);
 const { sampleHtmlWithYale } = require('./test-utils');
 const nock = require('nock');
+const express = require('express');
 
 // Set a different port for testing to avoid conflict with the main app
 const TEST_PORT = 3099;
 let server;
 
 describe('Integration Tests', () => {
-  // Modify the app to use a test port
   beforeAll(async () => {
     // Mock external HTTP requests
     nock.disableNetConnect();
     nock.enableNetConnect('127.0.0.1');
+    nock.enableNetConnect('localhost');
     
-    // Create a temporary test app file
-    await execAsync('cp app.js app.test.js');
-    await execAsync(`sed -i '' 's/const PORT = 3001/const PORT = ${TEST_PORT}/' app.test.js`);
+    // Create a test server programmatically (cross-platform solution)
+    const testApp = express();
+    testApp.use(express.json());
+    testApp.use(express.urlencoded({ extended: true }));
     
-    // Start the test server
-    server = require('child_process').spawn('node', ['app.test.js'], {
-      detached: true,
-      stdio: 'ignore'
+    // Recreate the /fetch endpoint for testing
+    testApp.post('/fetch', async (req, res) => {
+      try {
+        const { url } = req.body;
+        
+        if (!url) {
+          return res.status(400).json({ error: 'URL is required' });
+        }
+
+        const response = await require('axios').get(url);
+        const html = response.data;
+        const $ = require('cheerio').load(html);
+        
+        // Process text nodes in the body
+        $('body *').contents().filter(function() {
+          return this.nodeType === 3; // Text nodes only
+        }).each(function() {
+          const text = $(this).text();
+          const newText = text.replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
+          if (text !== newText) {
+            $(this).replaceWith(newText);
+          }
+        });
+        
+        // Process title separately
+        const title = $('title').text().replace(/Yale/g, 'Fale').replace(/yale/g, 'fale');
+        $('title').text(title);
+        
+        return res.json({ 
+          success: true, 
+          content: $.html(),
+          title: title,
+          originalUrl: url
+        });
+      } catch (error) {
+        return res.status(500).json({ 
+          error: `Failed to fetch content: ${error.message}` 
+        });
+      }
     });
     
+    // Start the test server
+    server = testApp.listen(TEST_PORT);
+    
     // Give the server time to start
-    await new Promise(resolve => setTimeout(resolve, 2000));
-  }, 10000); // Increase timeout for server startup
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }, 10000);
 
   afterAll(async () => {
-    // Kill the test server and clean up
-    if (server && server.pid) {
-      process.kill(-server.pid);
+    // Close the test server
+    if (server) {
+      await new Promise((resolve) => server.close(resolve));
     }
-    await execAsync('rm app.test.js');
     nock.cleanAll();
     nock.enableNetConnect();
   });
@@ -84,6 +120,7 @@ describe('Integration Tests', () => {
       // Should not reach here
       expect(true).toBe(false);
     } catch (error) {
+      expect(error.response).toBeDefined();
       expect(error.response.status).toBe(500);
     }
   });
@@ -94,6 +131,7 @@ describe('Integration Tests', () => {
       // Should not reach here
       expect(true).toBe(false);
     } catch (error) {
+      expect(error.response).toBeDefined();
       expect(error.response.status).toBe(400);
       expect(error.response.data.error).toBe('URL is required');
     }

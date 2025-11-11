@@ -1,13 +1,14 @@
-name: Faleproxy CI
+name: Faleproxy CI/CD
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ '**' ]  # Run on all branches
   pull_request:
     branches: [ main, master ]
 
 jobs:
   test:
+    name: Run Tests
     runs-on: ubuntu-latest
 
     strategy:
@@ -31,13 +32,43 @@ jobs:
       
     - name: Upload coverage report
       uses: actions/upload-artifact@v3
+      if: matrix.node-version == '18.x'
       with:
         name: coverage-report
         path: coverage/
-        
-  deploy:
+
+  deploy-preview:
+    name: Deploy to Vercel Preview
     needs: test
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    # Only deploy preview for non-main/master branches (feature branches)
+    if: github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18.x'
+        
+    - name: Install Vercel CLI
+      run: npm install --global vercel@latest
+      
+    - name: Pull Vercel Environment Information
+      run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+      
+    - name: Build Project Artifacts
+      run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+      
+    - name: Deploy to Preview
+      run: vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
+        
+  deploy-production:
+    name: Deploy to Vercel Production
+    needs: test
+    # Only deploy to production when tests pass on main or master branch
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     runs-on: ubuntu-latest
     
     steps:
@@ -57,5 +88,5 @@ jobs:
     - name: Build Project Artifacts
       run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
       
-    - name: Deploy Project Artifacts to Vercel
+    - name: Deploy to Production
       run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
